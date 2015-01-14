@@ -5,11 +5,16 @@
  * Custom Routes
  **************************************************************/
 
-
-Route::set('worker_index', 'worker/index')
+Route::set('worker_initialize', 'worker/initialize')
     ->defaults(array(
         'controller' => 'worker',
-        'action'     => 'index',
+        'action'     => 'initialize',
+    ));
+
+Route::set('worker_process', 'worker/process')
+    ->defaults(array(
+        'controller' => 'worker',
+        'action'     => 'process',
     ));
 
 /**************************************************************

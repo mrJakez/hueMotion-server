@@ -247,6 +247,7 @@ class Kohana_Database_Query {
 			}
 		}
 
+//		echo "<br>SQL: $sql<br>";
 		// Execute the query
 		$result = $db->query($this->_type, $sql, $as_object, $object_params);
 
