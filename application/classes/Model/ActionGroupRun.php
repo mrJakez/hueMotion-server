@@ -46,50 +46,72 @@ class Model_ActionGroupRun extends ORM {
         /** @var $action Model_Action */
         foreach($this->getActionGroup()->getActions() as $action) {
 
+            // check if the currentAction was already executed. If yes: skip
             if($this->hasExecutedAction($action)) {
                 $relativeTimeSum += $this->getRealDuration($action);
                 continue;
             }
 
+            /*
+             * check waiting dependencies:
+             * That means that we want to check if an waitForAction is set. If yes we check if this action has already been executed.
+             * Also we check if the $currentRelativeTime is greater/equal the startTime+duration of this waitForAction action.
+             */
             if ($action->getWaitForAction()) {
+
+                // execution just means that the command was send.
                 if(!$this->hasExecutedAction($action->getWaitForAction())) {
+                    continue;
+                }
+
+                // check if we have reached the correct time
+                /** @var $actionRunFromWaitForAction Model_ActionRun */
+                $actionRunFromWaitForAction = ORM::factory('ActionRun')->where('action_id', '=', $action->getWaitForAction()->id)->and_where('actionGroupRun_id', '=', $this->id)->find();
+                if($currentRelativeTime <= $actionRunFromWaitForAction->getTotalTime()) {
                     continue;
                 }
             }
 
-
-            if($currentRelativeTime >= $relativeTimeSum) {
-                Log::instance()->add(Log::NOTICE,"--------------> process action with ID: " . $action->id . " at relativeTime: $currentRelativeTime")->write();
-                $this->execute($action);
-                break;
-            }
+            Log::instance()->add(Log::NOTICE,"--------------> process action with ID: " . $action->id . " at relativeTime: $currentRelativeTime")->write();
+            $this->execute($action);
         }
 
-
         // check if all actions are executed. if yes: remove actionGroupRun and recreate a new one
-        if($currentRelativeTime >= $this->getDuration()) {
+        if($this->hasExecutedAllActions()) {
             Log::instance()->add(Log::NOTICE,"--------------> RECREATED ACTION GROUP RUN with ID: " . $this->id)->write();
-
             $this->getActionGroup()->createActionGroupRun($time);
             $this->delete();
         }
     }
+
 
     /**
      * @param $action Model_Action
      */
     protected function execute($action) {
 
-        //execute HUE command
+        // execute HUE command
         $action->execute();
+
+        // calculate totalTime (totalTime = oldTotalTime + duration)
+        $totalTime = $this->getRealDuration($action);
+        if ($action->getWaitForAction()) {
+
+            // get the totalTime from the action before and add it to the new totalTime
+            /** @var $actionRunFromWaitForAction Model_ActionRun */
+            $actionRunFromWaitForAction = ORM::factory('ActionRun')->where('action_id', '=', $action->getWaitForAction()->id)->and_where('actionGroupRun_id', '=', $this->id)->find();
+            $totalTime += $actionRunFromWaitForAction->getTotalTime();
+        }
 
         //store in actionRuns to identify already executed actions
         /** @var $actionRun Model_ActionRun */
         $actionRun = ORM::factory('ActionRun');
         $actionRun->setAction($action);
         $actionRun->setActionGroupRun($this);
+        $actionRun->setTotalTime($totalTime);
         $actionRun->save();
     }
+
 
     protected function hasExecutedAction($action) {
 
@@ -101,7 +123,7 @@ class Model_ActionGroupRun extends ORM {
         return FALSE;
     }
 
-    //TODO: remove method?!
+
     public function hasExecutedAllActions() {
         $actionsCount = $this->getActionGroup()->getActions()->count();
         $actionRunsCount = ORM::factory('ActionRun')->where('actionGroupRun_id', '=', $this->id)->find_all()->count();

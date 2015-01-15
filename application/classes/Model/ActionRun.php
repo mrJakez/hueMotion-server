@@ -29,4 +29,12 @@ class Model_ActionRun extends ORM {
     public function setActionGroupRun($actionGroupRun) {
         $this->actionGroupRun = $actionGroupRun;
     }
+
+    public function getTotalTime() {
+        return $this->totalTime;
+    }
+
+    public function setTotalTime($totalTime) {
+        $this->totalTime = $totalTime;
+    }
 }

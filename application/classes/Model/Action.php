@@ -21,7 +21,14 @@ class Model_Action extends ORM {
     public function execute() {
         switch ($this->getType()) {
             case self::$TYPE_MOTION:
-                hue::setLampConfiguration("1", array("xy" => hue::convertHexToXY('#FF0000')));
+
+                $payload = $this->getPayload();
+                $config = array(
+                    'xy' => hue::convertHexToXY($payload['color']),
+                    'transitiontime' => $this->getDuration() * 10,
+                );
+
+                hue::setLampConfiguration($config['lamp'], $config);
                 break;
             case self::$TYPE_DELAY:
                 //do nothing..
@@ -46,4 +53,9 @@ class Model_Action extends ORM {
     public function getType() {
         return $this->type;
     }
+
+    public function getPayload() {
+        return unserialize($this->payload);
+    }
+
 }

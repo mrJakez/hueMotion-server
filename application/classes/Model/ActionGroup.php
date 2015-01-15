@@ -18,7 +18,7 @@ class Model_ActionGroup extends ORM {
     }
 
     public function getActions() {
-        return $this->actions->order_by('position', 'asc')->find_all();
+        return $this->actions->find_all();
     }
 
 
