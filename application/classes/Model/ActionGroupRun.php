@@ -20,8 +20,8 @@ class Model_ActionGroupRun extends ORM {
      * @param $action Model_Action
      */
     public function getRealDuration($action) {
-        if($action->isRandomDuration()) {
-            return $this->getRandomInstances()[$action->id];
+        if($action->isVariableDuration()) {
+            return $this->getVariableInstanceValue($action->getDuration());
         } else {
           return $action->getDuration();
         }
@@ -31,13 +31,20 @@ class Model_ActionGroupRun extends ORM {
         return $this->startTime;
     }
 
-    public function setRandomInstances($randomInstances) {
-        $this->randomInstances = serialize($randomInstances);
+    public function setVariableInstances($randomInstances) {
+        $this->variableInstances = serialize($randomInstances);
     }
 
-    public function getRandomInstances() {
-        return unserialize($this->randomInstances);
+    public function getVariableInstances() {
+        return unserialize($this->variableInstances);
     }
+
+    public function getVariableInstanceValue($identifier) {
+        $identifier = Model_Variable::canonicalIdentifier($identifier);
+        $instances = $this->getVariableInstances();
+        return $instances[$identifier];
+    }
+
 
     public function process($time) {
         $currentRelativeTime = $time - $this->getStartTime();
@@ -54,20 +61,33 @@ class Model_ActionGroupRun extends ORM {
 
             /*
              * check waiting dependencies:
-             * That means that we want to check if an waitForAction is set. If yes we check if this action has already been executed.
+             * That means that we want to check if waitForActions are set. If yes we check if this actions has already been executed.
              * Also we check if the $currentRelativeTime is greater/equal the startTime+duration of this waitForAction action.
              */
-            if ($action->getWaitForAction()) {
+            if ($action->getWaitForActions()) {
 
-                // execution just means that the command was send.
-                if(!$this->hasExecutedAction($action->getWaitForAction())) {
-                    continue;
+
+                $waitForActionComplete = TRUE;
+
+                /** @var $action Model_Action */
+                foreach($action->getWaitForActions() as $waitForAction) {
+
+                    // execution just means that the command was send.
+                    if(!$this->hasExecutedAction($waitForAction)) {
+                        $waitForActionComplete = FALSE;
+                        break;
+                    }
+
+                    // check if we have reached the correct time
+                    /** @var $actionRunFromWaitForAction Model_ActionRun */
+                    $actionRunFromWaitForAction = ORM::factory('ActionRun')->where('action_id', '=', $waitForAction)->and_where('actionGroupRun_id', '=', $this->id)->find();
+                    if($currentRelativeTime <= $actionRunFromWaitForAction->getTotalTime()) {
+                        $waitForActionComplete = FALSE;
+                        break;
+                    }
                 }
 
-                // check if we have reached the correct time
-                /** @var $actionRunFromWaitForAction Model_ActionRun */
-                $actionRunFromWaitForAction = ORM::factory('ActionRun')->where('action_id', '=', $action->getWaitForAction()->id)->and_where('actionGroupRun_id', '=', $this->id)->find();
-                if($currentRelativeTime <= $actionRunFromWaitForAction->getTotalTime()) {
+                if ($waitForActionComplete == FALSE) {
                     continue;
                 }
             }
@@ -77,7 +97,7 @@ class Model_ActionGroupRun extends ORM {
         }
 
         // check if all actions are executed. if yes: remove actionGroupRun and recreate a new one
-        if($this->hasExecutedAllActions()) {
+        if($this->hasExecutedAllActions() && $this->getDuration() <= $currentRelativeTime) {
             Log::instance()->add(Log::NOTICE,"--------------> RECREATED ACTION GROUP RUN with ID: " . $this->id)->write();
             $this->getActionGroup()->createActionGroupRun($time);
             $this->delete();
@@ -91,16 +111,24 @@ class Model_ActionGroupRun extends ORM {
     protected function execute($action) {
 
         // execute HUE command
-        $action->execute();
+        $action->execute($this);
 
         // calculate totalTime (totalTime = oldTotalTime + duration)
         $totalTime = $this->getRealDuration($action);
-        if ($action->getWaitForAction()) {
+        if ($action->getWaitForActions()) {
+            // get the totalTime from the LONGEST action before and add it to the new totalTime
+            $longestParentActionDuration = 0;
+            /** @var $action Model_Action */
+            foreach($action->getWaitForActions() as $waitForAction) {
+                /** @var $actionRunFromWaitForAction Model_ActionRun */
+                $actionRunFromWaitForAction = ORM::factory('ActionRun')->where('action_id', '=', $waitForAction->id)->and_where('actionGroupRun_id', '=', $this->id)->find();
 
-            // get the totalTime from the action before and add it to the new totalTime
-            /** @var $actionRunFromWaitForAction Model_ActionRun */
-            $actionRunFromWaitForAction = ORM::factory('ActionRun')->where('action_id', '=', $action->getWaitForAction()->id)->and_where('actionGroupRun_id', '=', $this->id)->find();
-            $totalTime += $actionRunFromWaitForAction->getTotalTime();
+                if($actionRunFromWaitForAction->getTotalTime() > $longestParentActionDuration) {
+                    $longestParentActionDuration = $actionRunFromWaitForAction->getTotalTime();
+                }
+            }
+
+            $totalTime += $longestParentActionDuration;
         }
 
         //store in actionRuns to identify already executed actions
@@ -145,24 +173,37 @@ class Model_ActionGroupRun extends ORM {
 
     public function calculate(){
         //calculate the randoms
-        $this->setRandomInstances($this->calculateRandomInstances());
+        $this->setVariableInstances($this->calculateVariableInstances());
 
         //set the duration
         $this->duration = $this->calculateDuration();
     }
 
 
-    protected function calculateRandomInstances() {
+    protected function calculateVariableInstances() {
         $payload = array();
         /** @var $action Model_Action */
         foreach($this->getActionGroup()->getActions() as $action) {
 
-            if (!$action->isRandomDuration()) {
-                continue;
+            // calculate variable duration
+            if ($action->isVariableDuration()) {
+                $variableName = $action->getDuration();
+
+                $variable = Model_Variable::findWithIdentifier($variableName);
+                $payload[$variable->getIdentifier()] = $variable->calculateValue();
             }
 
-            $randomDuration = explode(':', $action->getDuration());
-            $payload[$action->id] = rand($randomDuration[0], $randomDuration[1]);
+            // calculate variable color
+            if ($action->getType() == Model_Action::$TYPE_MOTION) {
+                $actionPayload = $action->getPayload();
+
+                if (Model_Variable::isIdentifier($actionPayload['color'])) {
+                    $variableName = $actionPayload['color'];
+
+                    $variable = Model_Variable::findWithIdentifier($variableName);
+                    $payload[$variable->getIdentifier()] = $variable->calculateValue();
+                }
+            }
         }
 
         return $payload;
@@ -170,16 +211,54 @@ class Model_ActionGroupRun extends ORM {
 
 
     protected function calculateDuration() {
-        $duration = 0;
+
+        $durations = array();
+        $actions = $this->getActionGroup()->getActions();
+
+        //  get start actions (waitForAction=0)
         /** @var $action Model_Action */
-        foreach($this->getActionGroup()->getActions() as $action) {
-            if (!$action->isRandomDuration()) {
-                $duration += $action->getDuration();
-            } else {
-                $duration += $this->getRandomInstances()[$action->id];
+        foreach($actions as $action) {
+            if ($action->getWaitForActions() == NULL) {
+                $durations[$action->id] = $this->getRealDuration($action);
             }
         }
-        return $duration;
+
+        // calculate all other
+        for($i=0; $i < $actions->count(); $i++) {
+
+            /** @var $action Model_Action */
+            foreach($actions as $action) {
+                // check if we calculated this action already
+                if (array_key_exists($action->id, $durations)) {
+                    continue;
+                }
+
+                // check if all dependencies are calculated already and calculate the durationBefore
+                $durationBefore = 0;
+                /** @var $waitForAction Model_Action */
+                foreach($action->getWaitForActions() as $waitForAction) {
+                    if(!array_key_exists($waitForAction->id, $durations)) {
+                        continue;
+                    }
+
+                    if ($durations[$waitForAction->id] > $durationBefore) {
+                      $durationBefore = $durations[$waitForAction->id];
+                    }
+                }
+
+                // set the new duration
+                $durations[$action->id] = $durationBefore + $this->getRealDuration($action);
+            }
+        }
+
+        $maxDuration = 0;
+        foreach($durations as $duration) {
+            if ($duration > $maxDuration) {
+                $maxDuration = $duration;
+            }
+        }
+
+        return $maxDuration;
     }
 
 

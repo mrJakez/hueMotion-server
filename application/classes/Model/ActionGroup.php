@@ -17,6 +17,9 @@ class Model_ActionGroup extends ORM {
         return $this->name;
     }
 
+    /**
+     * @return Database_Result
+     */
     public function getActions() {
         return $this->actions->find_all();
     }
@@ -35,5 +38,23 @@ class Model_ActionGroup extends ORM {
         $actionGroupRun->startTime = $startTime;
         $actionGroupRun->calculate();
         $actionGroupRun->save();
+    }
+
+    public function json() {
+        $result = array();
+
+        $result['id'] = $this->id;
+        $result['name'] = $this->getName();
+        $result['actions'] = array();
+
+        /** @var $action Model_Action */
+        foreach($this->getActions() as $action) {
+
+            $result['actions'][] = $action->json();
+        }
+
+
+
+        return $result;
     }
 }

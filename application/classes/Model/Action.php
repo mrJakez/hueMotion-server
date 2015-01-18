@@ -10,25 +10,38 @@ class Model_Action extends ORM {
         'actionGroup' => array('foreign_key' => 'actionGroup_id')
     );
 
-    public function isRandomDuration() {
-        if (strpos($this->getDuration(), ':') !== FALSE) {
-            return TRUE;
-        } else {
-            return FALSE;
-        }
+    public function isVariableDuration() {
+        return Model_Variable::isIdentifier($this->getDuration());
     }
 
-    public function execute() {
+    /**
+     * @param $actionGroupRun Model_ActionGroupRun
+     */
+    public function execute($actionGroupRun) {
         switch ($this->getType()) {
             case self::$TYPE_MOTION:
 
                 $payload = $this->getPayload();
+
+                $color = $payload['color'];
+                $duration = $this->getDuration();
+
+                if (Model_Variable::isIdentifier($color)) {
+                    $color = $actionGroupRun->getVariableInstanceValue($color);
+                }
+
+                if (Model_Variable::isIdentifier($duration)) {
+                    $duration = $actionGroupRun->getVariableInstanceValue($duration);
+                }
+
+
                 $config = array(
-                    'xy' => hue::convertHexToXY($payload['color']),
-                    'transitiontime' => $this->getDuration() * 10,
+                    'xy' => hue::convertHexToXY($color),
+                    'transitiontime' => $duration * 10,
                 );
 
-                hue::setLampConfiguration($config['lamp'], $config);
+                Log::instance()->add(Log::NOTICE,"set lamp ".$payload['lamp']." to color ". $color)->write();
+                hue::setLampConfiguration($payload['lamp'], $config);
                 break;
             case self::$TYPE_DELAY:
                 //do nothing..
@@ -36,12 +49,15 @@ class Model_Action extends ORM {
         }
     }
 
-    /**
-     * @return Model_Action
-     */
-    public function getWaitForAction() {
+
+    public function getWaitForActions() {
         if($this->waitForAction) {
-            return  ORM::factory('action', $this->waitForAction);
+            $waitForActions = array();
+            foreach(explode(',', $this->waitForAction) as $waitForActionId) {
+                $waitForActions[] = ORM::factory('action', $waitForActionId);
+            }
+
+            return  $waitForActions;
         }
         return NULL;
     }
@@ -58,4 +74,26 @@ class Model_Action extends ORM {
         return unserialize($this->payload);
     }
 
+
+    public function json() {
+        $result = array();
+
+        $result['id'] = $this->id;
+        $result['type'] = $this->getType();
+        $result['duration'] = $this->getDuration();
+        if ($this->getWaitForActions()) {
+
+            $waitForActions = array();
+
+            /** @var $action Model_Action */
+            foreach($this->getWaitForActions() as $action) {
+                $waitForActions[] = $action->id;
+            }
+
+            $result['waitForAction'] = $waitForActions;
+        }
+        $result['payload'] = $this->getPayload();
+
+        return $result;
+    }
 }
