@@ -9,13 +9,22 @@ class Controller_Variable extends Controller_Rest {
     public function action_get() {
         $variable_id = Request::$current->param('variable_id');
 
-        if(!$variable_id) {
-            $this->addError(huemotion::ERROR_MISSING_PARAMETER, 'missing <variable_id> parameter');
-        }
+        if($variable_id) {
 
-        /** @var $variable Model_Variable */
-        $variable = ORM::factory('Variable', $variable_id);
-        $this->setContent($variable->json());
+            /** @var $variable Model_Variable */
+            $variable = ORM::factory('Variable', $variable_id);
+            $this->setContent($variable->json());
+
+        } else {
+            $result = array();
+            $variables = ORM::factory('Variable')->find_all();
+            /** @var $variable Model_Variable */
+            foreach($variables as $variable) {
+                $result[] = $variable->json();
+            }
+
+            $this->setContent($result);
+        }
     }
 
 

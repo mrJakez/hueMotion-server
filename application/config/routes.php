@@ -5,6 +5,12 @@
  * Custom Routes
  **************************************************************/
 
+Route::set('Configuration', 'api/configuration')
+    ->defaults(array(
+        'controller' => 'configuration',
+        'action'     => 'index',
+    ));
+
 Route::set('action', 'api/action(/<action_id>)')
     ->defaults(array(
         'controller' => 'action',
@@ -17,14 +23,11 @@ Route::set('actionGroup', 'api/actiongroup')
         'action'     => 'index',
     ));
 
-
 Route::set('Variable', 'api/variable(/<variable_id>)')
     ->defaults(array(
         'controller' => 'variable',
         'action'     => 'index',
     ));
-
-
 
 
 

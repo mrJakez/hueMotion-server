@@ -2,8 +2,8 @@
 
 class Controller_Action extends Controller_Rest {
     public function action_index() {
-        $this->dispatchMethod();
-    }
+    $this->dispatchMethod();
+}
 
 
     public function action_get() {
